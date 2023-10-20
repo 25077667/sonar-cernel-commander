@@ -3,8 +3,10 @@
 #include <linux/fs.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 
 #include "cdev.h"
+#include "syscall_hook.h"
 
 // the char device for this module interacts with user space
 // via file operations
@@ -19,6 +21,7 @@ const static struct file_operations fops = {
 static int major = 0, minor = 0;
 static dev_t scc_dev;
 static struct class *scc_class;
+static DEFINE_MUTEX(io_mutex);
 
 int dev_init(void)
 {
@@ -71,30 +74,62 @@ void dev_exit(void)
     unregister_chrdev(major, CDEV_NAME);
 }
 
-// open 
+// open
 int CDEV_FUNC(open)(struct inode *inode, struct file *filp)
 {
-    printk(KERN_DEBUG "CDEV_FUNC(open)\n");
+    if (!mutex_trylock(&io_mutex))
+    {
+        printk(KERN_ERR "Failed to lock scc mutex\n");
+        return -EBUSY;
+    }
     return 0;
 }
 
 // release
 int CDEV_FUNC(release)(struct inode *inode, struct file *filp)
 {
-    printk(KERN_DEBUG "CDEV_FUNC(release)\n");
+    mutex_unlock(&io_mutex);
     return 0;
 }
-
+static int hooked = 0;
 // read
 ssize_t CDEV_FUNC(read)(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
-    printk(KERN_DEBUG "CDEV_FUNC(read)\n");
+    long table = get_syscall_table();
+    printk(KERN_DEBUG "syscall table: %lx\n", table);
+
+    // save original syscall table
+    int rc = save_original_syscall();
+    if (rc < 0)
+    {
+        printk(KERN_ERR "Failed to save original syscall table\n");
+        return rc;
+    }
+
+    // hook syscall
+    rc = hook_syscall();
+    if (rc < 0)
+    {
+        printk(KERN_ERR "Failed to hook syscall\n");
+        return rc;
+    }
+    hooked = 1;
     return 0;
 }
 
-// write 
+// write
 ssize_t CDEV_FUNC(write)(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
-    printk(KERN_DEBUG "CDEV_FUNC(write)\n");
+    if (!hooked)
+        return 0;
+    // unhook syscall
+    int rc = unhook_syscall();
+    if (rc < 0)
+    {
+        printk(KERN_ERR "Failed to unhook syscall\n");
+        return rc;
+    }
+    hooked = 0;
+
     return 0;
 }
