@@ -54,16 +54,16 @@ static inline void logging_producer(void) {}
 #if IS_64_BIT
 #define ASM_CALL_FP(orig) asm volatile("callq *%0" : : "r"(orig))
 #else
-#define ASM_CALL_FP(orig) asm volatile("call *%0" : : "r"(orig))
+#define ASM_CALL_FP(orig) asm volatile("call *%0" : : "e"(orig))
 #endif
 
 #define OUR_SYSCALL_IMPL(number, orig)           \
     noinline static void NEW_FUNC_##number(void) \
     {                                            \
         SAVE_REGS();                             \
-        ASM_CALL_FP((logging_producer));         \
+        ASM_CALL_FP(logging_producer);           \
         RESTORE_REGS();                          \
-        ASM_CALL_FP((orig));                     \
+        ASM_CALL_FP(orig);                       \
     }
 
 #endif // __SCC_SYS_CALL_TABLE_H__
