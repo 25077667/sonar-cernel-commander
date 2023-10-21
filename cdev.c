@@ -106,13 +106,13 @@ ssize_t CDEV_FUNC(read)(struct file *filp, char __user *buf, size_t count, loff_
         return rc;
     }
 
-    // hook syscall
     rc = hook_syscall();
     if (rc < 0)
     {
         printk(KERN_ERR "Failed to hook syscall\n");
         return rc;
     }
+
     hooked = 1;
     return 0;
 }
@@ -122,14 +122,14 @@ ssize_t CDEV_FUNC(write)(struct file *filp, const char __user *buf, size_t count
 {
     if (!hooked)
         return 0;
-    // unhook syscall
+
     int rc = unhook_syscall();
     if (rc < 0)
     {
         printk(KERN_ERR "Failed to unhook syscall\n");
         return rc;
     }
-    hooked = 0;
 
-    return 0;
+    hooked = 0;
+    return count;
 }

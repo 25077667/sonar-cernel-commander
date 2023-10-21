@@ -48,7 +48,6 @@ module_param(sym, ulong, 0644);
 
 #endif /* Version < v5.7 */
 
-static unsigned long **sys_call_table;
 static DEFINE_MUTEX(syacall_mutex);
 static unsigned long *orig_syscall_tale[NR_syscalls];
 static unsigned long *our_syscall_table[NR_syscalls];
@@ -132,10 +131,11 @@ static void disable_write_protection(void)
     __write_cr0(cr0);
 }
 
-static inline int get_syscall_table_impl(void)
+long get_syscall_table(void)
 {
+    static unsigned long **sys_call_table = NULL;
     if (sys_call_table != NULL)
-        return 0;
+        return (long)sys_call_table;
 
     if (!mutex_trylock(&syacall_mutex))
     {
@@ -146,28 +146,17 @@ static inline int get_syscall_table_impl(void)
     sys_call_table = acquire_sys_call_table();
 
     mutex_unlock(&syacall_mutex);
-    return 0;
-}
-
-long get_syscall_table(void)
-{
-    int rc = get_syscall_table_impl();
-    if (rc < 0)
-        return rc;
-
-    if (sys_call_table == NULL)
-        return -1;
 
     return (long)sys_call_table;
 }
 
 int save_original_syscall(void)
 {
-    long table = get_syscall_table(); // system table should be negative
-    if (table >= 0)
+    long **table = (long**)get_syscall_table(); // system table should be negative
+    if (!((unsigned long)table & 0x8000000000000000))
     {
         printk(KERN_ERR "Failed to get syscall table\n");
-        return table;
+        return (int)table;
     }
 
     if (!mutex_trylock(&syacall_mutex))
@@ -175,8 +164,8 @@ int save_original_syscall(void)
         printk(KERN_ERR "Failed to lock scc syscall mutex\n");
         return -EBUSY;
     }
-    for (int i = 0; i < NR_syscalls - 1; i++)
-        orig_syscall_tale[i] = sys_call_table[i];
+    for (int i = 0; i < NR_syscalls; i++)
+        orig_syscall_tale[i] = table[i];
     mutex_unlock(&syacall_mutex);
 
     return 0;
@@ -184,12 +173,14 @@ int save_original_syscall(void)
 
 static int hook_syscall_impl(int nr, void *func)
 {
+    long **table = (long **)get_syscall_table();
+
     if (!mutex_trylock(&syacall_mutex))
         return -EBUSY;
 
     disable_write_protection();
     printk(KERN_DEBUG "hooking syscall %d\n", nr);
-    sys_call_table[nr] = (unsigned long *)func;
+    table[nr] = (unsigned long *)func;
     enable_write_protection();
 
     mutex_unlock(&syacall_mutex);
@@ -198,18 +189,22 @@ static int hook_syscall_impl(int nr, void *func)
 
 int hook_syscall(void)
 {
-    long table = get_syscall_table();
-    if (table >= 0)
+    long **table = (long **)get_syscall_table();
+    if (!((unsigned long)table & 0x8000000000000000))
     {
         printk(KERN_ERR "Failed to get syscall table\n");
-        return table;
+        return (int)table;
     }
 
-    int rc = hook_syscall_impl(__NR_openat, our_syscall_table[__NR_openat]);
-    if (rc < 0)
+    get_our_syscall_table();
+    for (int i = 0; i < NR_syscalls; i++)
     {
-        printk(KERN_ERR "Failed to hook openat\n");
-        return rc;
+        int rc = hook_syscall_impl(i, our_syscall_table[i]);
+        if (rc < 0)
+        {
+            printk(KERN_ERR "Failed to hook openat\n");
+            return rc;
+        }
     }
 
     return 0;
@@ -217,17 +212,17 @@ int hook_syscall(void)
 
 static inline void clear_orig_syscall(void)
 {
-    for (int i = 0; i < NR_syscalls - 1; i++)
+    for (int i = 0; i < NR_syscalls; i++)
         orig_syscall_tale[i] = NULL;
 }
 
 int unhook_syscall(void)
 {
-    long table = get_syscall_table();
-    if (table >= 0)
+    long **table = (long **)get_syscall_table();
+    if (!((unsigned long)table & 0x8000000000000000))
     {
         printk(KERN_ERR "Failed to get syscall table\n");
-        return table;
+        return (int)table;
     }
 
     if (!mutex_trylock(&syacall_mutex))
@@ -237,8 +232,8 @@ int unhook_syscall(void)
     }
 
     disable_write_protection();
-    for (int i = 0; i < NR_syscalls - 1; i++)
-        sys_call_table[i] = orig_syscall_tale[i];
+    for (int i = 0; i < NR_syscalls; i++)
+        table[i] = orig_syscall_tale[i];
     enable_write_protection();
 
     clear_orig_syscall();
@@ -246,6 +241,12 @@ int unhook_syscall(void)
     mutex_unlock(&syacall_mutex);
 
     return 0;
+}
+
+unsigned long **get_our_syscall_table(void)
+{
+    gen_our_syscall();
+    return our_syscall_table;
 }
 
 #define DECLARE_OUR_SYSCALL_TABLE(number) \
@@ -701,6 +702,9 @@ DECLARE_OUR_SYSCALL_TABLE(439)
 
 static void gen_our_syscall(void)
 {
+    if (our_syscall_table[0] != NULL)
+        return;
+
     ASSIGN_OUR_SYSCALL_TABLE(0);
     ASSIGN_OUR_SYSCALL_TABLE(1);
     ASSIGN_OUR_SYSCALL_TABLE(2);
