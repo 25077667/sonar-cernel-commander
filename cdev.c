@@ -91,45 +91,18 @@ int CDEV_FUNC(release)(struct inode *inode, struct file *filp)
     mutex_unlock(&io_mutex);
     return 0;
 }
-static int hooked = 0;
+
 // read
 ssize_t CDEV_FUNC(read)(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
-    long table = get_syscall_table();
-    printk(KERN_DEBUG "syscall table: %lx\n", table);
+    hook_syscall();
 
-    // save original syscall table
-    int rc = save_original_syscall();
-    if (rc < 0)
-    {
-        printk(KERN_ERR "Failed to save original syscall table\n");
-        return rc;
-    }
-
-    rc = hook_syscall();
-    if (rc < 0)
-    {
-        printk(KERN_ERR "Failed to hook syscall\n");
-        return rc;
-    }
-
-    hooked = 1;
     return 0;
 }
 
 // write
 ssize_t CDEV_FUNC(write)(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
-    if (!hooked)
-        return 0;
-
-    int rc = unhook_syscall();
-    if (rc < 0)
-    {
-        printk(KERN_ERR "Failed to unhook syscall\n");
-        return rc;
-    }
-
-    hooked = 0;
+    unhook_syscall();
     return count;
 }

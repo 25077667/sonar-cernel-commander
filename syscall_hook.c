@@ -12,6 +12,46 @@
 #include "syscall_hook.h"
 #include "our_syscall_table.h"
 
+static int hooked = 0;
+int hook_syscall(void){
+    long table = DETAIL(get_syscall_table)();
+    printk(KERN_DEBUG "syscall table: %lx\n", table);
+
+    // save original syscall table
+    int rc = DETAIL(save_original_syscall)();
+    if (rc < 0)
+    {
+        printk(KERN_ERR "Failed to save original syscall table\n");
+        return rc;
+    }
+
+    rc = DETAIL(hook_syscall)();
+    if (rc < 0)
+    {
+        printk(KERN_ERR "Failed to hook syscall\n");
+        return rc;
+    }
+
+    hooked = 1;
+    return 0;
+}
+
+int unhook_syscall(void){
+    if (!hooked)
+        return 0;
+
+    int rc = DETAIL(unhook_syscall)();
+    if (rc < 0)
+    {
+        printk(KERN_ERR "Failed to unhook syscall\n");
+        return rc;
+    }
+
+    hooked = 0;
+    return 0;
+}
+
+//-------------------------- DETAIL ZONE --------------------------
 /* The way we access "sys_call_table" varies as kernel internal changes.
  * - Prior to v5.4 : manual symbol lookup
  * - v5.5 to v5.6  : use kallsyms_lookup_name()
@@ -201,7 +241,7 @@ static void disable_write_protection(void)
     __write_cr0(cr0);
 }
 
-long get_syscall_table(void)
+long DETAIL(get_syscall_table)(void)
 {
     static unsigned long **sys_call_table = NULL;
     if (sys_call_table != NULL)
@@ -220,9 +260,9 @@ long get_syscall_table(void)
     return (long)sys_call_table;
 }
 
-int save_original_syscall(void)
+int DETAIL(save_original_syscall)(void)
 {
-    long **table = (long **)get_syscall_table(); // system table should be negative
+    long **table = (long **)DETAIL(get_syscall_table)(); // system table should be negative
     if (!((unsigned long)table & 0x8000000000000000))
     {
         printk(KERN_ERR "Failed to get syscall table\n");
@@ -243,7 +283,7 @@ int save_original_syscall(void)
 
 static int hook_syscall_impl(int nr, void *func)
 {
-    long **table = (long **)get_syscall_table();
+    long **table = (long **)DETAIL(get_syscall_table)();
 
     if (!mutex_trylock(&syacall_mutex))
         return -EBUSY;
@@ -257,16 +297,17 @@ static int hook_syscall_impl(int nr, void *func)
     return 0;
 }
 
-int hook_syscall(void)
+int DETAIL(hook_syscall)(void)
 {
-    long **table = (long **)get_syscall_table();
+    long **table = (long **)DETAIL(get_syscall_table)();
     if (!((unsigned long)table & 0x8000000000000000))
     {
         printk(KERN_ERR "Failed to get syscall table\n");
         return (int)(long long)table;
     }
 
-    get_our_syscall_table();
+    DETAIL(get_our_syscall_table)
+    ();
     for (int i = 0; i < HOOK_NR_SYSCALLS; i++)
     {
         int rc = hook_syscall_impl(i, our_syscall_table[i]);
@@ -285,9 +326,9 @@ static inline void clear_orig_syscall(void)
         orig_syscall_tale[i] = NULL;
 }
 
-int unhook_syscall(void)
+int DETAIL(unhook_syscall)(void)
 {
-    long **table = (long **)get_syscall_table();
+    long **table = (long **)DETAIL(get_syscall_table)();
     if (!((unsigned long)table & 0x8000000000000000))
     {
         printk(KERN_ERR "Failed to get syscall table\n");
@@ -312,7 +353,7 @@ int unhook_syscall(void)
     return 0;
 }
 
-unsigned long **get_our_syscall_table(void)
+unsigned long **DETAIL(get_our_syscall_table)(void)
 {
     gen_our_syscall();
     return our_syscall_table;
