@@ -53,6 +53,66 @@ static unsigned long *orig_syscall_tale[NR_syscalls];
 static unsigned long *our_syscall_table[NR_syscalls];
 static void gen_our_syscall(void);
 
+/**
+ * @brief tricky workaround for the kernel module building bug:
+ * If we call the fp directly, the compiler would always give me 0x0 for that constant address.
+ * It would generate asm like:
+ * 0000000000000340 <NEW_FUNC_0>:
+     340:	f3 0f 1e fa          	endbr64
+     344:	e8 00 00 00 00       	call   349 <NEW_FUNC_0+0x9>
+     349:	50                   	push   rax
+     34a:	53                   	push   rbx
+     34b:	51                   	push   rcx
+     34c:	52                   	push   rdx
+     34d:	56                   	push   rsi
+     34e:	57                   	push   rdi
+     34f:	55                   	push   rbp
+     350:	48 c7 c0 00 00 00 00 	mov    rax,0x0
+     357:	ff d0                	call   rax
+     359:	5d                   	pop    rbp
+     35a:	5f                   	pop    rdi
+     35b:	5e                   	pop    rsi
+     35c:	5a                   	pop    rdx
+     35d:	59                   	pop    rcx
+     35e:	5b                   	pop    rbx
+     35f:	58                   	pop    rax
+     360:	48 8b 05 00 00 00 00 	mov    rax,QWORD PTR [rip+0x0]        # 367 <NEW_FUNC_0+0x27>
+     367:	ff d0                	call   rax
+     369:	e9 00 00 00 00       	jmp    36e <NEW_FUNC_0+0x2e>
+     36e:	66 90                	xchg   ax,ax
+
+ * The compiler would generate a call to 0x0, which is not what we want.
+ * So we use a function pointer to store the address, and call the function pointer.
+ * The compiler would generate asm like:
+ * ...
+ * 0000000000000320 <NEW_FUNC_0>:
+     320:	f3 0f 1e fa          	endbr64
+     324:	e8 00 00 00 00       	call   329 <NEW_FUNC_0+0x9>
+     329:	50                   	push   rax
+     32a:	53                   	push   rbx
+     32b:	51                   	push   rcx
+     32c:	52                   	push   rdx
+     32d:	56                   	push   rsi
+     32e:	57                   	push   rdi
+     32f:	55                   	push   rbp
+     330:	48 8b 05 00 00 00 00 	mov    rax,QWORD PTR [rip+0x0]        # 337 <NEW_FUNC_0+0x17>
+     337:	ff d0                	call   rax
+     339:	5d                   	pop    rbp
+     33a:	5f                   	pop    rdi
+     33b:	5e                   	pop    rsi
+     33c:	5a                   	pop    rdx
+     33d:	59                   	pop    rcx
+     33e:	5b                   	pop    rbx
+     33f:	58                   	pop    rax
+     340:	48 8b 05 00 00 00 00 	mov    rax,QWORD PTR [rip+0x0]        # 347 <NEW_FUNC_0+0x27>
+     347:	ff d0                	call   rax
+     349:	e9 00 00 00 00       	jmp    34e <NEW_FUNC_0+0x2e>
+     34e:	66 90                	xchg   ax,ax
+ * 
+ * The compiler would generate a call to the function pointer, which is what we want.
+ */
+static void(*logging_producer_fp)(void);
+
 static unsigned long **acquire_sys_call_table(void)
 {
 #ifdef HAVE_KSYS_CLOSE
@@ -152,7 +212,7 @@ long get_syscall_table(void)
 
 int save_original_syscall(void)
 {
-    long **table = (long**)get_syscall_table(); // system table should be negative
+    long **table = (long **)get_syscall_table(); // system table should be negative
     if (!((unsigned long)table & 0x8000000000000000))
     {
         printk(KERN_ERR "Failed to get syscall table\n");
@@ -202,11 +262,11 @@ int hook_syscall(void)
         int rc = hook_syscall_impl(i, our_syscall_table[i]);
         if (rc < 0)
         {
-            printk(KERN_ERR "Failed to hook openat\n");
+            printk(KERN_ERR "Failed to hook syscall: %d\n", i);
             return rc;
         }
-    }
 
+    }
     return 0;
 }
 
@@ -247,6 +307,11 @@ unsigned long **get_our_syscall_table(void)
 {
     gen_our_syscall();
     return our_syscall_table;
+}
+
+noinline asmlinkage void logging_producer(void)
+{
+    // printk(KERN_DEBUG "logging_producer\n");
 }
 
 #define DECLARE_OUR_SYSCALL_TABLE(number) \
@@ -704,6 +769,7 @@ static void gen_our_syscall(void)
 {
     if (our_syscall_table[0] != NULL)
         return;
+    logging_producer_fp = logging_producer;
 
     ASSIGN_OUR_SYSCALL_TABLE(0);
     ASSIGN_OUR_SYSCALL_TABLE(1);
