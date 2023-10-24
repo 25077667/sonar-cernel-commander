@@ -13,7 +13,8 @@
 #include "our_syscall_table.h"
 
 static int hooked = 0;
-int hook_syscall(void){
+int hook_syscall(void)
+{
     long table = DETAIL(get_syscall_table)();
     printk(KERN_DEBUG "syscall table: %lx\n", table);
 
@@ -36,7 +37,8 @@ int hook_syscall(void){
     return 0;
 }
 
-int unhook_syscall(void){
+int unhook_syscall(void)
+{
     if (!hooked)
         return 0;
 
@@ -99,8 +101,8 @@ module_param(sym, ulong, 0644);
 #pragma message "HOOK_NR_SYSCALLS: " __stringify(HOOK_NR_SYSCALLS)
 
 static DEFINE_MUTEX(syacall_mutex);
-static unsigned long *orig_syscall_tale[HOOK_NR_SYSCALLS];
-static unsigned long *our_syscall_table[HOOK_NR_SYSCALLS];
+static unsigned long *orig_syscall_tale[HOOK_NR_SYSCALLS + 1];
+static unsigned long *our_syscall_table[HOOK_NR_SYSCALLS + 1];
 static void gen_our_syscall(void);
 
 /**

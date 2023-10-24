@@ -23,7 +23,7 @@ syscall_table_gen.h: Makefile
 	@echo "#define __SYSCALL_TABLE_GEN_H__" >> syscall_table_gen.h
 	@echo "#define DECLARE_OUR_SYSCALL_TABLE(number) OUR_SYSCALL_IMPL(number, orig_syscall_tale[number])" >> syscall_table_gen.h
 	@echo >> syscall_table_gen.h
-	@for i in $(shell seq 0 $(shell if [ -z $(NR_SYSCALLS_ME) ]; then echo $(DEFAULT_NR_SYSCALLS); else echo $(NR_SYSCALLS_ME); fi)); do \
+	@for i in $(shell seq 0 $(shell echo $(shell expr $(DEFAULT_NR_SYSCALLS) '-' 1))); do \
 		echo "DECLARE_OUR_SYSCALL_TABLE($$i);" >> syscall_table_gen.h; \
 	done
 	@echo >> syscall_table_gen.h
@@ -39,7 +39,7 @@ syscall_table_gen.h: Makefile
 	@echo >> syscall_table_gen.h
 	@echo "logging_producer_fp = logging_producer;" >> syscall_table_gen.h
 	@echo >> syscall_table_gen.h
-	@for i in $(shell seq 0 $(shell if [ -z $(NR_SYSCALLS_ME) ]; then echo $(DEFAULT_NR_SYSCALLS); else echo $(NR_SYSCALLS_ME); fi)); do \
+	@for i in $(shell seq 0 $(shell echo $(shell expr $(DEFAULT_NR_SYSCALLS) '-' 1))); do \
 		echo "ASSIGN_OUR_SYSCALL_TABLE($$i);" >> syscall_table_gen.h; \
 	done
 	@echo "}" >> syscall_table_gen.h
