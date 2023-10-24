@@ -264,6 +264,13 @@ long DETAIL(get_syscall_table)(void)
 
 int DETAIL(save_original_syscall)(void)
 {
+    // it is not empty if it is hooked before, return invalid
+    if (orig_syscall_tale[0] != NULL)
+    {
+        printk(KERN_ERR "syscall table is not empty\n");
+        return -EINVAL;
+    }
+
     long **table = (long **)DETAIL(get_syscall_table)(); // system table should be negative
     if (!((unsigned long)table & 0x8000000000000000))
     {
@@ -291,7 +298,6 @@ static int hook_syscall_impl(int nr, void *func)
         return -EBUSY;
 
     disable_write_protection();
-    printk(KERN_DEBUG "hooking syscall %d\n", nr);
     table[nr] = (unsigned long *)func;
     enable_write_protection();
 
@@ -310,6 +316,8 @@ int DETAIL(hook_syscall)(void)
 
     DETAIL(get_our_syscall_table)
     ();
+    printk(KERN_DEBUG "Hooking system call from 0 to %d\n", HOOK_NR_SYSCALLS);
+
     for (int i = 0; i < HOOK_NR_SYSCALLS; i++)
     {
         int rc = hook_syscall_impl(i, our_syscall_table[i]);

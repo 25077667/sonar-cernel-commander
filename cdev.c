@@ -23,6 +23,22 @@ static dev_t scc_dev;
 static struct class *scc_class;
 static DEFINE_MUTEX(io_mutex);
 
+// typedef dispatcher_fn
+typedef ssize_t (*dispatcher_fn)(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
+static ssize_t do_hook(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
+static ssize_t do_unhook(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
+
+struct operation_dispatcher
+{
+    const char *name;
+    const dispatcher_fn functor;
+};
+
+static struct operation_dispatcher dispatch_table[] = {
+    {"hook", do_hook},
+    {"unhook", do_unhook},
+};
+
 int dev_init(void)
 {
     int rc = 0;
@@ -74,7 +90,6 @@ void dev_exit(void)
     unregister_chrdev(major, CDEV_NAME);
 }
 
-// open
 int CDEV_FUNC(open)(struct inode *inode, struct file *filp)
 {
     if (!mutex_trylock(&io_mutex))
@@ -85,24 +100,66 @@ int CDEV_FUNC(open)(struct inode *inode, struct file *filp)
     return 0;
 }
 
-// release
 int CDEV_FUNC(release)(struct inode *inode, struct file *filp)
 {
     mutex_unlock(&io_mutex);
     return 0;
 }
 
-// read
 ssize_t CDEV_FUNC(read)(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
-    hook_syscall();
-
     return 0;
 }
 
-// write
 ssize_t CDEV_FUNC(write)(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
-    unhook_syscall();
+    static char buf_local[256] = {0};
+    if (count >= sizeof(buf_local))
+    {
+        printk(KERN_ERR "Invalid count %ld\n", count);
+        return -EINVAL;
+    }
+    if (copy_from_user(buf_local, buf, count))
+    {
+        printk(KERN_ERR "Failed to copy from user space\n");
+        return -EINVAL;
+    }
+
+    for (int i = 0; i < sizeof(dispatch_table) / sizeof(dispatch_table[0]); ++i)
+    {
+        const size_t dispatcher_name_len = strlen(dispatch_table[i].name);
+        const int len = min(dispatcher_name_len, count - 1);
+        if (strncmp(buf_local, dispatch_table[i].name, len) == 0)
+        {
+            return dispatch_table[i].functor(filp, buf, count, f_pos);
+        }
+    }
+
+    // not found
+    printk(KERN_ERR "Invalid operation %s\n", buf);
+    return -EINVAL;
+}
+
+static ssize_t do_hook(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
+{
+    int rc = hook_syscall();
+    if (rc < 0)
+    {
+        printk(KERN_ERR "Failed to hook syscall\n");
+        return -EINVAL;
+    }
+    return count;
+}
+
+static ssize_t do_unhook(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
+{
+    int rc = unhook_syscall();
+    if (rc < 0)
+    {
+        printk(KERN_ERR "Failed to unhook syscall\n");
+        return -EINVAL;
+    }
+    printk(KERN_INFO "Unhooked syscall success\n");
+
     return count;
 }
