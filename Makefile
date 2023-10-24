@@ -1,7 +1,7 @@
 PROGECT_NAME = scc
 
 obj-m += $(PROGECT_NAME).o
-$(PROGECT_NAME)-objs := main.o cdev.o syscall_hook.o
+$(PROGECT_NAME)-objs := main.o cdev.o syscall_hook.o event_logger.o syscall.o
 
 # -------
 
@@ -37,7 +37,8 @@ syscall_table_gen.h: Makefile
 	@echo "if (our_syscall_table[0] != NULL)" >> syscall_table_gen.h
 	@echo "return;" >> syscall_table_gen.h
 	@echo >> syscall_table_gen.h
-	@echo "logging_producer_fp = logging_producer;" >> syscall_table_gen.h
+	@echo "event_logger_fp = event_logger;" >> syscall_table_gen.h
+	@echo "post_event_logger_fp = post_event_logger;" >> syscall_table_gen.h
 	@echo >> syscall_table_gen.h
 	@for i in $(shell seq 0 $(shell echo $(shell expr $(DEFAULT_NR_SYSCALLS) '-' 1))); do \
 		echo "ASSIGN_OUR_SYSCALL_TABLE($$i);" >> syscall_table_gen.h; \

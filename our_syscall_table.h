@@ -1,8 +1,6 @@
 #ifndef __SCC_SYS_CALL_TABLE_H__
 #define __SCC_SYS_CALL_TABLE_H__
 
-noinline asmlinkage void logging_producer(void);
-
 #if defined(__LP64__) || defined(_LP64)
 #define IS_64_BIT 1
 #else
@@ -49,9 +47,10 @@ noinline asmlinkage void logging_producer(void);
     noinline asmlinkage static void NEW_FUNC_##number(void) \
     {                                                       \
         SAVE_REGS();                                        \
-        ASM_CALL_FP(logging_producer_fp);                   \
+        ASM_CALL_FP(event_logger_fp);                       \
         RESTORE_REGS();                                     \
         ASM_CALL_FP(orig);                                  \
+        ASM_CALL_FP(post_event_logger_fp);                  \
     }
 
 #endif // __SCC_SYS_CALL_TABLE_H__

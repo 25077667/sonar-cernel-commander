@@ -1,0 +1,27 @@
+{
+    "files.associations": {
+        "*.embeddedhtml": "html",
+        "circ_buf.h": "c",
+        "cred.h": "c",
+        "linkage.h": "c",
+        "hashtable.h": "c",
+        "hash.h": "c",
+        "mm.h": "c",
+        "errno.h": "c",
+        "export.h": "c",
+        "compiler.h": "c",
+        "sched.h": "c",
+        "seccomp.h": "c",
+        "stdint.h": "c",
+        "types.h": "c",
+        "assert.h": "c",
+        "chrono": "c",
+        "functional": "c"
+    },
+    "C_Cpp.default.includePath": [
+        "/lib/modules/6.5.9-arch2-1/build/include",
+        "/lib/modules/6.5.9-arch2-1/build/include/generated",
+        "/lib/modules/6.5.9-arch2-1/build/arch/x86/include",
+        "/lib/modules/6.5.9-arch2-1/build/arch/x86/include/generated",
+    ]
+}

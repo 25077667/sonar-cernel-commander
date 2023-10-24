@@ -11,6 +11,7 @@
 
 #include "syscall_hook.h"
 #include "our_syscall_table.h"
+#include "event_logger.h"
 
 static int hooked = 0;
 int hook_syscall(void)
@@ -97,6 +98,12 @@ module_param(sym, ulong, 0644);
 #define HOOK_NR_SYSCALLS 256
 #endif
 
+#define MSB (1UL << (sizeof(unsigned long) * 8 - 1))
+
+// We would skip 387 to 423, see: https://github.com/torvalds/linux/blob/df57721f9a63e8a1fb9b9b2e70de4aa4c7e0cd2e/arch/x86/entry/syscalls/syscall_64.tbl#L346
+#define SKIP_SYSCALLS_START 387
+#define SKIP_SYSCALLS_END 423
+
 // print HOOK_NR_SYSCALLS in compile time
 #pragma message "HOOK_NR_SYSCALLS: " __stringify(HOOK_NR_SYSCALLS)
 
@@ -163,7 +170,8 @@ static void gen_our_syscall(void);
  *
  * The compiler would generate a call to the function pointer, which is what we want.
  */
-static void (*logging_producer_fp)(void);
+static void (*event_logger_fp)(void);
+static void (*post_event_logger_fp)(void);
 
 static unsigned long **acquire_sys_call_table(void)
 {
@@ -272,7 +280,7 @@ int DETAIL(save_original_syscall)(void)
     }
 
     long **table = (long **)DETAIL(get_syscall_table)(); // system table should be negative
-    if (!((unsigned long)table & 0x8000000000000000))
+    if (!((unsigned long)table & MSB))
     {
         printk(KERN_ERR "Failed to get syscall table\n");
         return (int)(long long)table;
@@ -308,7 +316,7 @@ static int hook_syscall_impl(int nr, void *func)
 int DETAIL(hook_syscall)(void)
 {
     long **table = (long **)DETAIL(get_syscall_table)();
-    if (!((unsigned long)table & 0x8000000000000000))
+    if (!((unsigned long)table & MSB))
     {
         printk(KERN_ERR "Failed to get syscall table\n");
         return (int)(long long)table;
@@ -320,6 +328,9 @@ int DETAIL(hook_syscall)(void)
 
     for (int i = 0; i < HOOK_NR_SYSCALLS; i++)
     {
+        if (i >= SKIP_SYSCALLS_START && i <= SKIP_SYSCALLS_END)
+            continue;
+
         int rc = hook_syscall_impl(i, our_syscall_table[i]);
         if (rc < 0)
         {
@@ -339,7 +350,7 @@ static inline void clear_orig_syscall(void)
 int DETAIL(unhook_syscall)(void)
 {
     long **table = (long **)DETAIL(get_syscall_table)();
-    if (!((unsigned long)table & 0x8000000000000000))
+    if (!((unsigned long)table & MSB))
     {
         printk(KERN_ERR "Failed to get syscall table\n");
         return (int)(long long)table;
@@ -353,7 +364,12 @@ int DETAIL(unhook_syscall)(void)
 
     disable_write_protection();
     for (int i = 0; i < HOOK_NR_SYSCALLS; i++)
+    {
+        if (i >= SKIP_SYSCALLS_START && i <= SKIP_SYSCALLS_END)
+            continue;
+
         table[i] = orig_syscall_tale[i];
+    }
     enable_write_protection();
 
     clear_orig_syscall();
@@ -367,11 +383,6 @@ unsigned long **DETAIL(get_our_syscall_table)(void)
 {
     gen_our_syscall();
     return our_syscall_table;
-}
-
-noinline asmlinkage void logging_producer(void)
-{
-    // printk(KERN_DEBUG "logging_producer\n");
 }
 
 #include "syscall_table_gen.h"
