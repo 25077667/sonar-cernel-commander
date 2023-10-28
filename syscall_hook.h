@@ -4,6 +4,7 @@
 
 int hook_syscall(void);
 int unhook_syscall(void);
+unsigned long set_sym_addr(unsigned long addr);
 
 /**
  * @brief This macro is used to introduce detail function.

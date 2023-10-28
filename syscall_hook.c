@@ -14,6 +14,8 @@
 #include "event_logger.h"
 
 static int hooked = 0;
+static unsigned long sym = 0;
+
 int hook_syscall(void)
 {
     long table = DETAIL(get_syscall_table)();
@@ -54,6 +56,12 @@ int unhook_syscall(void)
     return 0;
 }
 
+unsigned long set_sym_addr(unsigned long addr)
+{
+    sym = addr;
+    return sym;
+}
+
 //-------------------------- DETAIL ZONE --------------------------
 /* The way we access "sys_call_table" varies as kernel internal changes.
  * - Prior to v5.4 : manual symbol lookup
@@ -80,14 +88,15 @@ int unhook_syscall(void)
 #else
 #define HAVE_PARAM 1
 #include <linux/kallsyms.h> /* For sprint_symbol */
+
+#endif /* CONFIG_KPROBES */
+
 /* The address of the sys_call_table, which can be obtained with looking up
  * "/boot/System.map" or "/proc/kallsyms". When the kernel version is v5.7+,
  * without CONFIG_KPROBES, you can input the parameter or the module will look
  * up all the memory.
  */
-static unsigned long sym = 0;
 module_param(sym, ulong, 0644);
-#endif                      /* CONFIG_KPROBES */
 
 #endif /* Version < v5.7 */
 
@@ -172,27 +181,26 @@ static void gen_our_syscall(void);
  */
 static void (*event_logger_fp)(void);
 static void (*post_event_logger_fp)(void);
-
-static unsigned long **acquire_sys_call_table(void)
+static __always_inline ulong **acquire_sys_call_table_kp(void)
 {
-#ifdef HAVE_KSYS_CLOSE
-    unsigned long int offset = PAGE_OFFSET;
-    unsigned long **sct;
+#ifdef HAVE_KPROBES
+    unsigned long (*kallsyms_lookup_name)(const char *name);
+    struct kprobe kp = {
+        .symbol_name = "kallsyms_lookup_name",
+    };
 
-    while (offset < ULLONG_MAX)
-    {
-        sct = (unsigned long **)offset;
-
-        if (sct[__NR_close] == (unsigned long *)ksys_close)
-            return sct;
-
-        offset += sizeof(void *);
-    }
-
+    if (register_kprobe(&kp) < 0)
+        return NULL;
+    kallsyms_lookup_name = (unsigned long (*)(const char *name))kp.addr;
+    unregister_kprobe(&kp);
+    return (unsigned long **)kallsyms_lookup_name("sys_call_table");
+#else
     return NULL;
 #endif
+}
 
-#ifdef HAVE_PARAM
+static __always_inline ulong **acquire_sys_call_table_param(void)
+{
     const char sct_name[15] = "sys_call_table";
     char symbol[40] = {0};
 
@@ -211,21 +219,41 @@ static unsigned long **acquire_sys_call_table(void)
         return (unsigned long **)sym;
 
     return NULL;
+}
+
+static __always_inline ulong **acquire_sys_call_table_brute_force(void)
+{
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 4, 0)
+    unsigned long int offset = PAGE_OFFSET;
+    unsigned long **sct;
+
+    while (offset < ULLONG_MAX)
+    {
+        sct = (unsigned long **)offset;
+
+        if (sct[__NR_close] == (unsigned long *)ksys_close)
+            return sct;
+
+        offset += sizeof(void *);
+    }
+#endif
+
+    return NULL;
+}
+
+static unsigned long **acquire_sys_call_table(void)
+{
+#ifdef HAVE_KSYS_CLOSE
+    return acquire_sys_call_table_brute_force();
+#endif
+
+#ifdef HAVE_PARAM
+    return acquire_sys_call_table_param();
 #endif
 
 #ifdef HAVE_KPROBES
-    unsigned long (*kallsyms_lookup_name)(const char *name);
-    struct kprobe kp = {
-        .symbol_name = "kallsyms_lookup_name",
-    };
-
-    if (register_kprobe(&kp) < 0)
-        return NULL;
-    kallsyms_lookup_name = (unsigned long (*)(const char *name))kp.addr;
-    unregister_kprobe(&kp);
+    return acquire_sys_call_table_kp();
 #endif
-
-    return (unsigned long **)kallsyms_lookup_name("sys_call_table");
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)

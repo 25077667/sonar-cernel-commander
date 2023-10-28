@@ -27,6 +27,7 @@ static DEFINE_MUTEX(io_mutex);
 typedef ssize_t (*dispatcher_fn)(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
 static ssize_t do_hook(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
 static ssize_t do_unhook(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
+static ssize_t do_sym(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
 
 struct operation_dispatcher
 {
@@ -37,6 +38,7 @@ struct operation_dispatcher
 static struct operation_dispatcher dispatch_table[] = {
     {"hook", do_hook},
     {"unhook", do_unhook},
+    {"sym", do_sym},
 };
 
 int dev_init(void)
@@ -161,5 +163,30 @@ static ssize_t do_unhook(struct file *filp, const char __user *buf, size_t count
     }
     printk(KERN_INFO "Unhooked syscall success\n");
 
+    return count;
+}
+
+static ssize_t do_sym(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
+{
+    static char buf_local[256] = {0};
+    if (copy_from_user(buf_local, buf, count))
+    {
+        printk(KERN_ERR "Failed to copy from user space\n");
+        return -EINVAL;
+    }
+
+    unsigned long addr = 0;
+    if (kstrtoul(buf_local + 3, 16, &addr))
+    {
+        printk(KERN_ERR "Failed to convert %s to unsigned long\n", buf_local);
+        return -EINVAL;
+    }
+    unsigned long rc = set_sym_addr(addr);
+    if (rc < 0)
+    {
+        printk(KERN_ERR "Failed to set sym addr\n");
+        return -EINVAL;
+    }
+    printk(KERN_INFO "Set sym addr success %x\n", rc);
     return count;
 }
