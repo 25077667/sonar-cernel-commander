@@ -113,7 +113,35 @@ int CDEV_FUNC(release)(struct inode *inode, struct file *filp)
 
 ssize_t CDEV_FUNC(read)(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
-    return 0;
+    // infinite reading values from get_events(...), keep reading until signal is received
+    // or the buffer is full
+#define CAPACITY 10
+    struct event events[CAPACITY];
+    int size = 0;
+    int rc = get_events(events, &size, CAPACITY);
+    if (rc < 0)
+    {
+        printk(KERN_ERR "Failed to get events\n");
+        return -ENODATA;
+    }
+
+    if (size == 0)
+    {
+        printk(KERN_INFO "No events\n");
+        return 0;
+    }
+
+    int len = 0;
+    // copy to user space
+    unsigned long _ = copy_to_user(buf, events, size * sizeof(struct event));
+    if (_ != 0)
+    {
+        printk(KERN_ERR "Failed to copy to user space\n");
+        return -EINVAL;
+    }
+    len += size * sizeof(struct event);
+    return len;
+#undef CAPACITY
 }
 
 ssize_t CDEV_FUNC(write)(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
