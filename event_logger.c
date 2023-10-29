@@ -50,6 +50,8 @@ static __always_inline int is_event_logger_enabled(void)
     // atomic_read(&enable_event_logger_flag) == 0 means the event logger is not enabled
     return atomic_read(&enable_event_logger_flag);
 }
+static inline void clear_log_circ_buffer(void);
+static inline void clear_event_cache(void);
 
 noinline asmlinkage void event_logger(void)
 {
@@ -171,6 +173,12 @@ void asmlinkage enable_event_logger(int enable)
     if (unlikely(enable != 0 && enable != 1))
         return;
     atomic_set(&enable_event_logger_flag, enable);
+    // when disable the event logger, we need to clear the buffer
+    if (enable == 0)
+    {
+        clear_log_circ_buffer();
+        clear_event_cache();
+    }
 }
 
 static inline void log_event(const struct event *event)
@@ -269,4 +277,25 @@ static inline int get_current_event(struct event *event)
 #endif
 
     return 0;
+}
+
+static inline void clear_log_circ_buffer(void)
+{
+    spin_lock(&buffer_lock);
+    log_circ_buffer.head = log_circ_buffer.tail = 0;
+    spin_unlock(&buffer_lock);
+}
+
+static inline void clear_event_cache(void)
+{
+    spin_lock(&event_cache_lock);
+    struct event *to_be_deleted;
+    struct hlist_node *tmp;
+    long bkt;
+    hash_for_each_safe(event_cache, bkt, tmp, to_be_deleted, node)
+    {
+        hash_del(&to_be_deleted->node);
+        kfree(to_be_deleted);
+    }
+    spin_unlock(&event_cache_lock);
 }
