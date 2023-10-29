@@ -7,6 +7,7 @@
 
 #include "cdev.h"
 #include "syscall_hook.h"
+#include "event_logger.h"
 
 // the char device for this module interacts with user space
 // via file operations
@@ -27,6 +28,8 @@ static DEFINE_MUTEX(io_mutex);
 typedef ssize_t (*dispatcher_fn)(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
 static ssize_t do_hook(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
 static ssize_t do_unhook(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
+static ssize_t do_enable(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
+static ssize_t do_disable(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
 
 struct operation_dispatcher
 {
@@ -37,6 +40,8 @@ struct operation_dispatcher
 static struct operation_dispatcher dispatch_table[] = {
     {"hook", do_hook},
     {"unhook", do_unhook},
+    {"enable", do_enable},
+    {"disable", do_disable},
 };
 
 int dev_init(void)
@@ -160,6 +165,22 @@ static ssize_t do_unhook(struct file *filp, const char __user *buf, size_t count
         return -EINVAL;
     }
     printk(KERN_INFO "Unhooked syscall success\n");
+
+    return count;
+}
+
+static ssize_t do_enable(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
+{
+    enable_event_logger(1);
+    printk(KERN_INFO "Enabled syscall\n");
+
+    return count;
+}
+
+static ssize_t do_disable(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
+{
+    enable_event_logger(0);
+    printk(KERN_INFO "Disabled syscall\n");
 
     return count;
 }
