@@ -18,7 +18,8 @@
         "chrono": "c",
         "functional": "c",
         "kprobes.h": "c",
-        "kallsyms.h": "c"
+        "kallsyms.h": "c",
+        "mutex.h": "c"
     },
     "C_Cpp.default.includePath": [
         "/lib/modules/6.5.9-arch2-1/build/include",

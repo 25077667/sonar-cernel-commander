@@ -11,6 +11,8 @@
 #include <linux/hashtable.h>
 #include <linux/hash.h>
 #include <linux/sched/task_stack.h>
+#include <linux/completion.h>
+#include <linux/mutex.h>
 
 #include "event_logger.h"
 #include "event_schema.h"
@@ -26,18 +28,34 @@ static_assert(sizeof(struct scc_syscall_info) == sizeof(struct syscall_info),
 #endif
 
 #define CIRC_BUFFER_SIZE (PAGE_SIZE << 2)
-
-static DEFINE_SPINLOCK(buffer_lock);
 static char page_buffer[CIRC_BUFFER_SIZE];
 static struct circ_buf log_circ_buffer = {
     .buf = page_buffer,
     .head = 0,
     .tail = 0,
 };
+static struct completion buffer_completion;
+static DEFINE_MUTEX(buffer_lock);
 
 // hash map for caching events before the log_event() call
 static DEFINE_HASHTABLE(event_cache, 8);
-static DEFINE_SPINLOCK(event_cache_lock);
+static struct completion event_cache_completion;
+static DEFINE_MUTEX(event_cache_lock);
+
+#define lock_completion(comp, lock) \
+    do                              \
+    {                               \
+        if (mutex_trylock(lock))    \
+            break;                  \
+        wait_for_completion(comp);  \
+    } while (1)
+
+#define unlock_completion(comp, lock) \
+    do                                \
+    {                                 \
+        mutex_unlock(lock);           \
+        complete(comp);               \
+    } while (0)
 
 static inline void log_event(const struct event *event);
 static inline void drop_last_event(void);
@@ -88,6 +106,8 @@ void post_event_logger(void)
 #else
 #error "Unsupported architecture currently"
 #endif
+    // The condition that the event is not cached is very rare, so we don't need to optimize it
+    init_event_cache();
 
     struct event cur_event;
     int rc = get_current_event(&cur_event);
@@ -102,7 +122,7 @@ void post_event_logger(void)
         return;
     struct event *cached_event = NULL;
 
-    spin_lock(&event_cache_lock);
+    lock_completion(&event_cache_completion, &event_cache_lock);
     // find the cached event from event_cache(hash table)
     hash_for_each_possible(event_cache, cached_event, node, key)
     {
@@ -115,7 +135,7 @@ void post_event_logger(void)
             break;
         }
     }
-    spin_unlock(&event_cache_lock);
+    unlock_completion(&event_cache_completion, &event_cache_lock);
 
     if (unlikely(!cached_event)) // not found in cache, no longer need to log
         return;
@@ -125,9 +145,9 @@ void post_event_logger(void)
     cached_event->tstamp = ktime_get();
 
     // lock the buffer
-    spin_lock(&buffer_lock);
+    lock_completion(&buffer_completion, &buffer_lock);
     log_event(cached_event);
-    spin_unlock(&buffer_lock);
+    unlock_completion(&buffer_completion, &buffer_lock);
 
     kfree(cached_event);
 
@@ -151,14 +171,15 @@ int asmlinkage get_event(struct event *event)
         return -ENODATA;
     if (unlikely(!event))
         return -EINVAL;
+    init_event_cache();
 
-    spin_lock(&buffer_lock);
+    lock_completion(&buffer_completion, &buffer_lock);
     if (log_circ_buffer.head != log_circ_buffer.tail)
     {
         memcpy(event, log_circ_buffer.buf + log_circ_buffer.tail, sizeof(struct event));
         log_circ_buffer.tail = (log_circ_buffer.tail + sizeof(struct event)) & (CIRC_BUFFER_SIZE - 1);
     }
-    spin_unlock(&buffer_lock);
+    unlock_completion(&buffer_completion, &buffer_lock);
     return 0;
 }
 
@@ -170,17 +191,17 @@ int asmlinkage get_events(struct event *restrict events, int *restrict size, int
         return -EINVAL;
     if (unlikely(log_circ_buffer.head == log_circ_buffer.tail))
         return -ENODATA;
+    init_event_cache();
 
     int i = 0;
-
-    spin_lock(&buffer_lock);
+    lock_completion(&buffer_completion, &buffer_lock);
     while (log_circ_buffer.head != log_circ_buffer.tail && i < capacity)
     {
         memcpy(events + i, log_circ_buffer.buf + log_circ_buffer.tail, sizeof(struct event));
         log_circ_buffer.tail = (log_circ_buffer.tail + sizeof(struct event)) & (CIRC_BUFFER_SIZE - 1);
         i++;
     }
-    spin_unlock(&buffer_lock);
+    unlock_completion(&buffer_completion, &buffer_lock);
 
     *size = i;
     return 0;
@@ -240,8 +261,13 @@ static inline void drop_last_event(void)
 static inline void init_event_cache(void)
 {
     static atomic_t initialized = ATOMIC_INIT(0);
-    if (!atomic_cmpxchg(&initialized, 0, 1))
-        hash_init(event_cache);
+    if (atomic_xchg(&initialized, 1))
+        return;
+
+    hash_init(event_cache);
+
+    init_completion(&event_cache_completion);
+    init_completion(&buffer_completion);
 }
 
 static inline void cache_event(const struct event *event)
@@ -255,9 +281,9 @@ static inline void cache_event(const struct event *event)
     if (unlikely(key < 0))
         return;
 
-    spin_lock(&event_cache_lock);
+    lock_completion(&event_cache_completion, &event_cache_lock);
     hash_add(event_cache, &cached_event->node, key);
-    spin_unlock(&event_cache_lock);
+    unlock_completion(&event_cache_completion, &event_cache_lock);
 }
 
 static inline long long get_event_cache_hash_key(const struct event *event)
@@ -317,14 +343,15 @@ static inline int get_current_event(struct event *event)
 
 static inline void clear_log_circ_buffer(void)
 {
-    spin_lock(&buffer_lock);
+    lock_completion(&buffer_completion, &buffer_lock);
+
     log_circ_buffer.head = log_circ_buffer.tail = 0;
-    spin_unlock(&buffer_lock);
+    unlock_completion(&buffer_completion, &buffer_lock);
 }
 
 static inline void clear_event_cache(void)
 {
-    spin_lock(&event_cache_lock);
+    lock_completion(&event_cache_completion, &event_cache_lock);
     struct event *to_be_deleted;
     struct hlist_node *tmp;
     long bkt;
@@ -333,5 +360,5 @@ static inline void clear_event_cache(void)
         hash_del(&to_be_deleted->node);
         kfree(to_be_deleted);
     }
-    spin_unlock(&event_cache_lock);
+    unlock_completion(&event_cache_completion, &event_cache_lock);
 }

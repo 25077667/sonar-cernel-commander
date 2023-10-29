@@ -167,19 +167,23 @@ ssize_t CDEV_FUNC(write)(struct file *filp, const char __user *buf, size_t count
     return -EINVAL;
 }
 
-static ssize_t detail_event_to_user(struct event *event, size_t count, char __user *buf) {
+static ssize_t detail_event_to_user(struct event *event, size_t count, char __user *buf)
+{
     struct event_schema *schema = kmalloc(count * sizeof(struct event_schema), GFP_KERNEL);
-    if (!schema) {
+    if (!schema)
+    {
         printk(KERN_ERR "Failed to allocate memory\n");
         return -ENOMEM;
     }
 
-    for (int i = 0; i < count; ++i) {
+    for (int i = 0; i < count; ++i)
+    {
         event_to_schema(event + i, schema + i);
     }
 
     unsigned long _ = copy_to_user(buf, schema, count * sizeof(struct event_schema));
-    if (_ != 0) {
+    if (_ != 0)
+    {
         printk(KERN_ERR "Failed to copy to user space\n");
         kfree(schema);
         return -EINVAL;
@@ -217,7 +221,7 @@ static ssize_t do_unhook(struct file *filp, const char __user *buf, size_t count
 static ssize_t do_enable(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
     enable_event_logger(1);
-    printk(KERN_INFO "Enabled syscall\n");
+    printk(KERN_INFO "Enabled syscall event logger\n");
 
     return count;
 }
@@ -225,7 +229,7 @@ static ssize_t do_enable(struct file *filp, const char __user *buf, size_t count
 static ssize_t do_disable(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
     enable_event_logger(0);
-    printk(KERN_INFO "Disabled syscall\n");
+    printk(KERN_INFO "Disabled syscall event logger\n");
 
     return count;
 }
