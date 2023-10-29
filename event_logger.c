@@ -53,7 +53,7 @@ static __always_inline int is_event_logger_enabled(void)
 
 noinline asmlinkage void event_logger(void)
 {
-    if (unlikely(is_event_logger_enabled()))
+    if (unlikely(!is_event_logger_enabled()))
         return;
 
     init_event_cache();
@@ -71,7 +71,7 @@ noinline asmlinkage void event_logger(void)
 
 void post_event_logger(void)
 {
-    if (unlikely(is_event_logger_enabled()))
+    if (unlikely(!is_event_logger_enabled()))
         return;
 // get system call return value, by x86 syscall convention, it is stored in rax
 #if defined(__i386__) || defined(__x86_64__)
@@ -125,7 +125,7 @@ void post_event_logger(void)
 
 int asmlinkage get_event(struct event *event)
 {
-    if (unlikely(is_event_logger_enabled()))
+    if (unlikely(!is_event_logger_enabled()))
         return -ENODATA;
     if (unlikely(log_circ_buffer.head == log_circ_buffer.tail))
         return -ENODATA;
@@ -144,7 +144,7 @@ int asmlinkage get_event(struct event *event)
 
 int asmlinkage get_events(struct event *restrict events, int *restrict size, int capacity)
 {
-    if (unlikely(is_event_logger_enabled()))
+    if (unlikely(!is_event_logger_enabled()))
         return -ENODATA;
     if (unlikely(!events || !size || capacity <= 0))
         return -EINVAL;
