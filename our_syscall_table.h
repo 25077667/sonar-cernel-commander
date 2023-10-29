@@ -50,7 +50,9 @@
         ASM_CALL_FP(event_logger_fp);                       \
         RESTORE_REGS();                                     \
         ASM_CALL_FP(orig);                                  \
+        PUSH_REG(ax);                                       \
         ASM_CALL_FP(post_event_logger_fp);                  \
+        POP_REG(ax);                                        \
     }
 
 #endif // __SCC_SYS_CALL_TABLE_H__
