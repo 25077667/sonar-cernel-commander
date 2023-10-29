@@ -13,6 +13,7 @@
 #include <linux/sched/task_stack.h>
 
 #include "event_logger.h"
+#include "event_schema.h"
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)
 #include <uapi/linux/seccomp.h>
@@ -120,6 +121,9 @@ void post_event_logger(void)
         return;
     cached_event->ret = sysret;
 
+    // set the timestamp
+    cached_event->tstamp = ktime_get();
+
     // lock the buffer
     spin_lock(&buffer_lock);
     log_event(cached_event);
@@ -193,6 +197,24 @@ void asmlinkage enable_event_logger(int enable)
         clear_log_circ_buffer();
         clear_event_cache();
     }
+}
+
+void event_to_schema(const struct event *event, struct event_schema *schema)
+{
+    if (unlikely(!event || !schema))
+        return;
+
+#define GET_DATA_SAFE(ptr, member) ((ptr) ? (ptr)->member : 0)
+    schema->uid = __kuid_val(event->cred->uid);
+    schema->pid = GET_DATA_SAFE(event->task, pid);
+    schema->ppid = GET_DATA_SAFE(event->task->real_parent, pid);
+    schema->tid = GET_DATA_SAFE(event->task, tgid);
+    schema->timestamp = ktime_to_ns(event->tstamp);
+
+    schema->syscall_nr = event->info.data.nr;
+    memcpy(schema->syscall_args, event->info.data.args, sizeof(schema->syscall_args));
+    schema->syscall_ret = event->ret;
+#undef GET_DATA_SAFE
 }
 
 static inline void log_event(const struct event *event)

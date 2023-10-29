@@ -8,6 +8,7 @@
 #include "cdev.h"
 #include "syscall_hook.h"
 #include "event_logger.h"
+#include "event_schema.h"
 
 // the char device for this module interacts with user space
 // via file operations
@@ -23,6 +24,8 @@ static int major = 0, minor = 0;
 static dev_t scc_dev;
 static struct class *scc_class;
 static DEFINE_MUTEX(io_mutex);
+
+static ssize_t detail_event_to_user(struct event *event, size_t count, char __user *buf);
 
 // typedef dispatcher_fn
 typedef ssize_t (*dispatcher_fn)(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
@@ -131,16 +134,7 @@ ssize_t CDEV_FUNC(read)(struct file *filp, char __user *buf, size_t count, loff_
         return 0;
     }
 
-    int len = 0;
-    // copy to user space
-    unsigned long _ = copy_to_user(buf, events, size * sizeof(struct event));
-    if (_ != 0)
-    {
-        printk(KERN_ERR "Failed to copy to user space\n");
-        return -EINVAL;
-    }
-    len += size * sizeof(struct event);
-    return len;
+    return detail_event_to_user(events, size, buf);
 #undef CAPACITY
 }
 
@@ -171,6 +165,29 @@ ssize_t CDEV_FUNC(write)(struct file *filp, const char __user *buf, size_t count
     // not found
     printk(KERN_ERR "Invalid operation %s\n", buf);
     return -EINVAL;
+}
+
+static ssize_t detail_event_to_user(struct event *event, size_t count, char __user *buf) {
+    struct event_schema *schema = kmalloc(count * sizeof(struct event_schema), GFP_KERNEL);
+    if (!schema) {
+        printk(KERN_ERR "Failed to allocate memory\n");
+        return -ENOMEM;
+    }
+
+    for (int i = 0; i < count; ++i) {
+        event_to_schema(event + i, schema + i);
+    }
+
+    unsigned long _ = copy_to_user(buf, schema, count * sizeof(struct event_schema));
+    if (_ != 0) {
+        printk(KERN_ERR "Failed to copy to user space\n");
+        kfree(schema);
+        return -EINVAL;
+    }
+
+    kfree(schema);
+
+    return count * sizeof(struct event_schema);
 }
 
 static ssize_t do_hook(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)

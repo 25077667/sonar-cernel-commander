@@ -1,9 +1,11 @@
 #ifndef __SCC_event_logger_H__
 #define __SCC_event_logger_H__
 #include <linux/types.h>
+#include <linux/time.h>
 
 struct task_struct;
 struct cred;
+struct event_schema;
 
 // Because of compatibility issues, we need to define the struct similar to the kernel version.
 struct scc_seccomp_data
@@ -28,9 +30,10 @@ struct event
         unsigned long ret;
         struct hlist_node node;
     };
+    ktime_t tstamp;
     // reserved for future use, and align to 128 bytes
     // must align to the power of 2
-    unsigned long reserved[3];
+    unsigned long reserved[2];
 };
 
 void event_logger(void);
@@ -70,5 +73,7 @@ int get_events(struct event *restrict events, int *restrict size, int capacity);
  * Do nothing if @enable is not 0 or 1.
  */
 void enable_event_logger(int enable);
+
+void event_to_schema(const struct event *event, struct event_schema *schema);
 
 #endif
