@@ -73,11 +73,17 @@ noinline asmlinkage void event_logger(void)
 
 void post_event_logger(void)
 {
+    int sysret;
     if (unlikely(!is_event_logger_enabled()))
         return;
 // get system call return value, by x86 syscall convention, it is stored in rax
-#if defined(__i386__) || defined(__x86_64__)
-    const long sysret = current_pt_regs()->ax;
+// we use inline asm to get the return value from rax/eax to sysret
+#if defined(__i386__)
+    asm volatile("mov %%rax, %0"
+                 : "=r"(sysret));
+#elif defined(__x86_64__)
+    asm volatile("mov %%eax, %0"
+                 : "=r"(sysret));
 #else
 #error "Unsupported architecture currently"
 #endif
@@ -121,8 +127,16 @@ void post_event_logger(void)
 
     kfree(cached_event);
 
-    // store the return value
-    current_pt_regs()->ax = sysret;
+#if defined(__i386__)
+    asm volatile("mov %0, %%rax"
+                 :
+                 : "r"(sysret)); // restore the return value
+#elif defined(__x86_64__)
+    asm volatile("mov %%eax, %0"
+                 : "=r"(sysret));
+#else
+#error "Unsupported architecture currently"
+#endif
 }
 
 int asmlinkage get_event(struct event *event)

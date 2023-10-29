@@ -28,6 +28,9 @@ struct event
         unsigned long ret;
         struct hlist_node node;
     };
+    // reserved for future use, and align to 128 bytes
+    // must align to the power of 2
+    unsigned long reserved[3];
 };
 
 void event_logger(void);
