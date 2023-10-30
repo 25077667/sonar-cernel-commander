@@ -3,45 +3,41 @@
 import struct
 import json
 
-def main():
-    # Define the format string for unpacking the binary data
-    event_format = "<IIIIQIQ6QQ"  # Use little-endian format for struct fields
+# Define the corrected format string to match the struct event_schema
+EVENT_FORMAT = "IIIIQIQ6Q"
 
-    # Open the device file for reading
-    with open('/dev/scc', 'rb') as file:
-        while True:
-            try:
-                # Read a slot of data
-                slot_data = file.read(struct.calcsize(event_format))
+def unpack_event(binary_data) -> dict:
+    """Unpack binary data into a dictionary"""
+    event_tuple = struct.unpack(EVENT_FORMAT, binary_data)
+    event_dict = {
+        "uid": event_tuple[0],
+        "pid": event_tuple[1],
+        "ppid": event_tuple[2],
+        "tid": event_tuple[3],
+        "timestamp": event_tuple[4],
+        "syscall_nr": event_tuple[5],
+        "syscall_args": list(event_tuple[6:12]),
+        "syscall_ret": event_tuple[12]
+    }
+    return event_dict
 
-                if not slot_data:
-                    break  # Exit loop if there's no more data
 
-                # Unpack the binary data into variables
-                uid, pid, ppid, tid, timestamp, syscall_nr, *syscall_args, syscall_ret = struct.unpack(event_format, slot_data)
+def main() -> None:
+    """Read binary data from /dev/scc and print as JSON."""
+    with open('/dev/scc', 'rb') as scc_file:
+        try:
+            while True:
+                binary_data = scc_file.read(struct.calcsize(EVENT_FORMAT))
+                if not binary_data:
+                    break  # End of file
+                event_dict = unpack_event(binary_data)
+                event_json = json.dumps(event_dict, indent=4)
+                print(event_json)
+        except KeyboardInterrupt:
+            pass
+        except IOError:  # Handle a broken pipe
+            pass
 
-                # Create a dictionary to store the event data
-                event_data = {
-                    "uid": uid,
-                    "pid": pid,
-                    "ppid": ppid,
-                    "tid": tid,
-                    "timestamp": timestamp,
-                    "syscall_nr": syscall_nr,
-                    "syscall_args": syscall_args,
-                    "syscall_ret": syscall_ret
-                }
-
-                # Print the event data in JSON format
-                print(json.dumps(event_data))
-
-            except struct.error as e:
-                print("Error parsing data:", e)
-            except IOError: # Ignore IOError exceptions, e.g. broken pipe
-                break
-
-    # Close the file when done
-    file.close()
 
 if __name__ == '__main__':
     main()
